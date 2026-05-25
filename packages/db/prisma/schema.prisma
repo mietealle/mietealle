@@ -1,0 +1,266 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum Role {
+  VENDOR
+  RENTER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED // blocked from login, data intact
+  DELETED   // GDPR erasure — PII anonymised, record kept for audit
+}
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  ACTIVE
+  DISPATCHED
+  DELIVERED
+  RETURN_INITIATED
+  RETURN_DISPATCHED
+  RETURNED
+  COMPLETED
+  CANCELLED
+}
+
+enum DispatchStatus {
+  PENDING
+  ON_HOLD
+  DISPATCHED
+  DELIVERED
+  RETURN_INITIATED
+  RETURN_DISPATCHED
+  RETURNED
+  CANCELLED
+}
+
+enum Category {
+  CONSTRUCTION
+  LIFTING_CRANES
+  EARTHMOVING
+  COMPACTION
+  POWER_GENERATION
+  MATERIAL_HANDLING
+  CONCRETE_PUMPING
+  AERIAL_WORK_PLATFORMS
+  DEMOLITION
+  OTHER
+}
+
+enum InvoiceType {
+  RENTER_VENDOR
+  ADMIN_VENDOR
+}
+
+// ─── NextAuth ─────────────────────────────────────────────────────────────────
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─── Core Domain ─────────────────────────────────────────────────────────────
+
+model User {
+  id                 String             @id @default(cuid())
+  email              String             @unique
+  emailVerified      DateTime?
+  name               String?
+  image              String?
+  hashedPassword     String?
+  role               Role               @default(RENTER)
+  verificationStatus VerificationStatus @default(PENDING)
+  company            String?
+  phone              String?
+  // Vendor-only: commission % taken by admin (set at approval time, default 10)
+  commissionRate     Float              @default(10)
+  // Account lifecycle (GDPR)
+  status             UserStatus         @default(ACTIVE)
+  suspendedAt        DateTime?
+  deletedAt          DateTime?          // set on GDPR erasure
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  accounts      Account[]
+  sessions      Session[]
+  products      Product[]      @relation("VendorProducts")
+  bookings      Booking[]      @relation("RenterBookings")
+  reviews       Review[]
+  notifications Notification[]
+}
+
+model Product {
+  id                  String   @id @default(cuid())
+  vendorId            String
+  name                String
+  slug                String   @unique
+  description         String
+  category            Category
+  pricePerDay         Decimal  @db.Decimal(10, 2)
+  images              String[]
+  availability        Boolean  @default(true)
+  location            String?
+  // Stock & logistics
+  quantity            Int      @default(1)
+  transportAvailable  Boolean  @default(false)
+  transportCost       Decimal? @db.Decimal(10, 2) // fixed per delivery
+  // Insurance
+  insuranceAvailable  Boolean  @default(false)
+  insuranceCostPerDay Decimal? @db.Decimal(10, 2)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  vendor   User      @relation("VendorProducts", fields: [vendorId], references: [id])
+  bookings Booking[]
+  reviews  Review[]
+}
+
+model Booking {
+  id                String        @id @default(cuid())
+  renterId          String
+  productId         String
+  startDate         DateTime      @db.Date
+  endDate           DateTime      @db.Date
+  quantity          Int           @default(1)
+  totalPrice        Decimal       @db.Decimal(10, 2)
+  deliveryAddress   String?       // required when transportIncluded = true
+  // Add-ons
+  transportIncluded Boolean       @default(false)
+  transportCost     Decimal       @default(0) @db.Decimal(10, 2)
+  insuranceIncluded Boolean       @default(false)
+  insuranceCost     Decimal       @default(0) @db.Decimal(10, 2)
+  // Deposit (pre-auth 5 days)
+  depositAmount     Decimal       @default(0) @db.Decimal(10, 2)
+  depositPaid       Boolean       @default(false)
+  // Payment reference (Stripe PaymentIntent ID — wired in payment phase)
+  stripePaymentId   String?
+  // Status
+  status            BookingStatus @default(PENDING)
+  dispatchStatus    DispatchStatus @default(PENDING)
+  notes             String?
+  // Timestamps
+  confirmedAt       DateTime?
+  dispatchedAt      DateTime?
+  deliveredAt       DateTime?
+  returnInitiatedAt DateTime?
+  returnedAt        DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  renter   User      @relation("RenterBookings", fields: [renterId], references: [id])
+  product  Product   @relation(fields: [productId], references: [id])
+  invoices Invoice[]
+
+  @@index([productId, startDate, endDate])
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  authorId  String
+  productId String
+  rating    Int
+  body      String?
+  createdAt DateTime @default(now())
+
+  author  User    @relation(fields: [authorId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([authorId, productId])
+}
+
+// ─── Notifications ────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String   // BOOKING_CREATED | BOOKING_CONFIRMED | DISPATCHED | etc.
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  entityId  String?  // bookingId or productId
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+}
+
+// ─── Audit Log ────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?  // who performed the action (null = system)
+  action    String   // BOOKING_CREATED | STATUS_CHANGED | USER_APPROVED | etc.
+  entity    String   // Booking | Product | User
+  entityId  String
+  details   Json?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+}
+
+// ─── Invoices ─────────────────────────────────────────────────────────────────
+
+model Invoice {
+  id         String      @id @default(cuid())
+  bookingId  String
+  type       InvoiceType
+  subtotal   Decimal     @db.Decimal(10, 2)
+  commission Decimal     @default(0) @db.Decimal(10, 2)
+  total      Decimal     @db.Decimal(10, 2)
+  pdfUrl     String?
+  issuedAt   DateTime    @default(now())
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+
+  @@index([bookingId])
+}
