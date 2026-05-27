@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requireRoleForApi } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createNotification, createAuditLog } from "@/lib/notifications";
 import type { DispatchStatus, BookingStatus } from "@mietealle/db";
@@ -25,7 +25,8 @@ const DISPATCH_TO_BOOKING: Partial<Record<DispatchStatus, BookingStatus>> = {
 interface UpdateDispatchBody { bookingId: string; dispatchStatus: DispatchStatus }
 
 export async function PATCH(req: Request) {
-  const session = await requireRole("VENDOR");
+  const session = await requireRoleForApi("VENDOR");
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const body = await req.json() as UpdateDispatchBody;
   const { bookingId, dispatchStatus } = body;
 

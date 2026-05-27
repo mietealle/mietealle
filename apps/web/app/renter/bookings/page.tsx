@@ -1,4 +1,5 @@
 import { Metadata } from "next";
+import Link from "next/link";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent } from "@/components/ui/card";
@@ -95,6 +96,16 @@ export default async function RenterBookingsPage() {
                       <ReturnActions bookingId={b.id} hasTransport={b.transportIncluded} />
                     </div>
                   )}
+
+                  {/* Detail link */}
+                  <div className="mt-3 flex justify-end">
+                    <Link
+                      href={`/renter/bookings/${b.id}`}
+                      className="text-xs text-brand-600 hover:underline"
+                    >
+                      Details ansehen →
+                    </Link>
+                  </div>
                 </CardContent>
               </Card>
             );

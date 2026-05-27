@@ -1,4 +1,5 @@
 import { Metadata } from "next";
+import Link from "next/link";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent } from "@/components/ui/card";
@@ -59,8 +60,14 @@ export default async function VendorBookingsPage() {
                     <p className="mt-1 text-xs text-gray-400">Anzahlung: {formatCurrency(Number(b.depositAmount))}</p>
                   </div>
                 </div>
-                <div className="mt-3 flex items-center gap-2">
+                <div className="mt-3 flex items-center justify-between gap-2">
                   <VendorDispatchActions bookingId={b.id} currentStatus={b.dispatchStatus} bookingStatus={b.status} />
+                  <Link
+                    href={`/vendor/bookings/${b.id}`}
+                    className="shrink-0 text-xs text-brand-600 hover:underline"
+                  >
+                    Details →
+                  </Link>
                 </div>
               </CardContent>
             </Card>

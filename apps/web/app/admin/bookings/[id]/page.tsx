@@ -43,7 +43,7 @@ export default async function AdminBookingDetailPage({ params }: { params: { id:
       renter: { select: { id: true, name: true, email: true, company: true, phone: true } },
       product: {
         include: {
-          vendor: { select: { id: true, name: true, email: true, company: true, phone: true } },
+          vendor: { select: { id: true, name: true, email: true, company: true, phone: true, commissionRate: true } },
         },
       },
       invoices: true,
@@ -54,6 +54,9 @@ export default async function AdminBookingDetailPage({ params }: { params: { id:
   const rentalDays = Math.max(1, Math.ceil(
     (new Date(booking.endDate).getTime() - new Date(booking.startDate).getTime()) / 86_400_000
   ));
+
+  const commissionRate = booking.product.vendor.commissionRate;
+  const commissionAmount = Number(booking.totalPrice) * (commissionRate / 100);
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -206,8 +209,14 @@ export default async function AdminBookingDetailPage({ params }: { params: { id:
               <span>Gesamtbetrag</span>
               <span>{formatCurrency(Number(booking.totalPrice))}</span>
             </div>
+            {commissionRate > 0 && (
+              <div className="flex justify-between text-emerald-700 text-xs font-medium">
+                <span>Provision ({commissionRate}%)</span>
+                <span>+ {formatCurrency(commissionAmount)}</span>
+              </div>
+            )}
             <div className="flex justify-between text-gray-400 text-xs">
-              <span>Anzahlung (5 Tage)</span>
+              <span>Anzahlung</span>
               <span>{formatCurrency(Number(booking.depositAmount))}</span>
             </div>
             <div className="flex justify-between text-xs">
